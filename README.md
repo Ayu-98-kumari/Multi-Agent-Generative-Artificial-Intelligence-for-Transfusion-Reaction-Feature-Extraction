@@ -1,4 +1,4 @@
-# Transfusion Reaction Detection
+# Multi-Agent Generative Artificial Intelligence for Transfusion Reaction Feature Extraction
 
 An end-to-end pipeline that reads free-text clinical notes and extracts
 **structured transfusion-reaction features** aligned to the **CDC NHSN
