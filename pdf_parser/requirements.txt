@@ -1,0 +1,8 @@
+# pdf_parser module dependencies
+PyMuPDF>=1.24        # Pass 1: TOC, positioned text, page-image rendering (fitz)
+pydantic>=2.0        # fixed JSON schema (discriminated unions)
+python-dotenv>=1.0   # read GROQ_API_KEY from the project-root .env
+groq>=0.11           # Pass 2: Groq VLM chat completions with image input
+
+# dev / test
+pytest>=8.0

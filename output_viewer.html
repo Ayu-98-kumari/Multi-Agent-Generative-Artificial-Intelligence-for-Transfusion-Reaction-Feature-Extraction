@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transfusion Pipeline — Output Viewer</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2933; --muted:#6b7280; --line:#e3e8ef;
+    --accent:#2c5282; --present:#1f7a4d; --present-bg:#e8f6ee;
+    --absent:#8a5a00; --absent-bg:#fdf3e0; --global:#5a3fa0; --global-bg:#efeafb;
+    --yes:#1f7a4d; --yes-bg:#e8f6ee; --no:#8892a0; --no-bg:#eef1f5;
+    --evidence:#374151;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b212b; --ink:#e6eaf0; --muted:#9aa4b2; --line:#2a323e;
+      --accent:#7ab0ff; --present:#5fd39a; --present-bg:#123024;
+      --absent:#e6b566; --absent-bg:#332810; --global:#b7a4f0; --global-bg:#241d3a;
+      --yes:#5fd39a; --yes-bg:#123024; --no:#9aa4b2; --no-bg:#232a34; --evidence:#c4ccd6;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.5}
+  header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);
+         padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;
+       font-size:13px;cursor:pointer;font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  input[type=file]{display:none}
+  #search{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+          font-size:13px;min-width:200px}
+  .stats{font-size:12px;color:var(--muted)}
+  .stats b{color:var(--ink)}
+  main{max-width:1320px;margin:0 auto;padding:20px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:60px 20px;text-align:center;color:var(--muted);
+        background:var(--card)}
+  .drop.drag{border-color:var(--accent);background:var(--present-bg)}
+  .drop h2{color:var(--ink);font-weight:600;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:18px;overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);
+             background:linear-gradient(0deg,transparent,rgba(0,0,0,.015))}
+  .rownum{font-weight:700;color:var(--accent);font-size:13px;background:var(--present-bg);
+          border-radius:6px;padding:2px 9px}
+  .card-head .mini{font-size:11px;color:var(--muted)}
+  .note{padding:14px 16px;font-size:14px;white-space:pre-wrap;border-bottom:1px solid var(--line);color:var(--ink)}
+  .cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .col{padding:14px 16px}
+  .col + .col{border-left:1px solid var(--line)}
+  @media(max-width:900px){.col + .col{border-left:none;border-top:1px solid var(--line)}}
+  .col h3{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .feat,.treat{border-left:3px solid var(--line);padding:6px 10px;margin-bottom:8px;border-radius:0 8px 8px 0;
+               background:rgba(127,127,127,.04)}
+  .feat.present{border-left-color:var(--present)}
+  .feat.absence{border-left-color:var(--absent)}
+  .feat.global{border-left-color:var(--global)}
+  .feat-name{font-weight:600;font-size:13.5px}
+  .feat.absence .feat-name{color:var(--absent)}
+  .feat-ev{display:block;font-size:12.5px;color:var(--evidence);font-style:italic;margin-top:2px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:20px;margin-top:4px;
+         vertical-align:middle}
+  .badge.time{background:var(--present-bg);color:var(--present)}
+  .badge.global{background:var(--global-bg);color:var(--global)}
+  .badge.yes{background:var(--yes-bg);color:var(--yes)}
+  .badge.no{background:var(--no-bg);color:var(--no)}
+  /* Model 3 NHSN schema (nested Timing / Details variables) */
+  .schema{margin-top:6px}
+  .schema-group{font-size:12px;margin-top:5px}
+  .schema-label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;
+                letter-spacing:.5px;color:var(--muted);margin-bottom:2px}
+  .svar-row{margin:3px 0 3px 8px;padding-left:8px;border-left:2px solid var(--line)}
+  .svar{display:inline-block;background:var(--present-bg);border-radius:6px;padding:1px 7px;
+        font-size:11.5px;color:var(--ink)}
+  .svar .sv-id{color:var(--muted)}
+  .svar .sv-unit{color:var(--present);font-weight:600}
+  .sv-meta{font-size:11px;color:var(--muted);margin-top:2px;white-space:pre-wrap;line-height:1.35}
+  .sv-meta b{color:var(--ink);font-weight:600}
+  .treat-name{font-weight:600;font-size:13.5px;margin-right:6px}
+  .treat-meta{font-size:12.5px;color:var(--muted);margin-top:3px;display:flex;flex-wrap:wrap;gap:12px}
+  .treat-meta b{color:var(--ink);font-weight:500}
+  .pmh{border-left:3px solid var(--accent);padding:6px 10px;margin-bottom:8px;border-radius:0 8px 8px 0;
+       background:rgba(127,127,127,.04)}
+  .pmh-cond{font-weight:600;font-size:13.5px}
+  .pmh-detail{display:block;font-size:12.5px;color:var(--evidence);margin-top:2px}
+  .pmh-detail.na{color:var(--muted);font-style:italic}
+  .empty{color:var(--muted);font-size:12.5px;font-style:italic}
+  .raw{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted);white-space:pre-wrap}
+  .hidden{display:none}
+  footer{text-align:center;color:var(--muted);font-size:11px;padding:24px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🩸 Transfusion Pipeline — Output Viewer</h1>
+  <label class="btn primary" for="file">Open CSV…</label>
+  <input type="file" id="file" accept=".csv">
+  <span id="fname" class="stats"></span>
+  <div class="spacer"></div>
+  <input id="search" type="search" placeholder="Filter notes / features…" class="hidden">
+  <span id="stats" class="stats"></span>
+  <button id="export" class="btn" disabled>⬇ Export to Excel</button>
+</header>
+
+<main>
+  <div id="drop" class="drop">
+    <h2>Open a pipeline output CSV</h2>
+    <p>Click <b>Open CSV…</b> above, or drag a <code>.csv</code> file here.<br>
+       Everything runs locally in your browser — nothing is uploaded.</p>
+  </div>
+  <div id="list"></div>
+</main>
+<footer>Local viewer · features, treatments &amp; past medical history rendered from the JSON columns · use “Export to Excel” to share.</footer>
+
+<script>
+"use strict";
+let RECORDS = [];      // [{note, featuresCell, treatmentsCell, pmhCell}]
+let FILEBASE = "output";
+
+/* ---------- robust CSV parser (handles quotes, commas & newlines in fields) ---------- */
+function parseCSV(text){
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+  const rows=[]; let row=[]; let field=""; let i=0; let inQ=false;
+  while(i < text.length){
+    const c=text[i];
+    if(inQ){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field+='"'; i+=2; continue; }
+        inQ=false; i++; continue;
+      }
+      field+=c; i++; continue;
+    }
+    if(c === '"'){ inQ=true; i++; continue; }
+    if(c === ','){ row.push(field); field=""; i++; continue; }
+    if(c === '\r'){ i++; continue; }
+    if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=""; i++; continue; }
+    field+=c; i++;
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function esc(s){ return String(s==null?"":s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function tryParse(t){ try{ return {ok:true, data:JSON.parse(t)}; }catch(e){ return {ok:false, data:null}; } }
+
+/* Model 3 nested NHSN schema -> Timing/Details variables, one per line, with the
+   schema's notes / dependencies shown inline (small grey text) beneath each. */
+function renderSchema(schema){
+  if(!schema || typeof schema!=="object") return "";
+  const group = (label, arr) => {
+    if(!Array.isArray(arr) || !arr.length) return "";
+    const items = arr.map(v=>{
+      if(!v || typeof v!=="object") return "";
+      const unit = v.unit? ` <span class="sv-unit">${esc(v.unit)}</span>`:"";
+      const chip = `<span class="svar"><span class="sv-id">${esc(v.variable_id||"")}:</span> `
+                 + `${esc(v.value==null?"":v.value)}${unit}</span>`;
+      const notes = v.notes? `<div class="sv-meta"><b>notes:</b> ${esc(v.notes)}</div>`:"";
+      const deps  = v.dependencies? `<div class="sv-meta"><b>deps:</b> ${esc(v.dependencies)}</div>`:"";
+      return `<div class="svar-row">${chip}${notes}${deps}</div>`;
+    }).join("");
+    return `<div class="schema-group"><span class="schema-label">${label}</span>${items}</div>`;
+  };
+  const html = group("timing", schema.timing) + group("details", schema.details);
+  return html? `<div class="schema">${html}</div>` : "";
+}
+
+/* find the column indices by header name (falls back to 0/1/2) */
+function detectCols(header){
+  const h = header.map(x => (x||"").toString().trim().toLowerCase());
+  const find = (subs, def) => { for(const s of subs){ const k=h.findIndex(x=>x.includes(s)); if(k>=0) return k; } return def; };
+  return {
+    note: find(["clinical text","clinical note","note","text"], 0),
+    features: find(["extracted feature","feature"], 1),
+    treatments: find(["treatment"], 2),
+    pmh: find(["past medical history","medical history","past medical"], 3)
+  };
+}
+
+/* ---------- rendering ---------- */
+function renderFeatures(cell){
+  const {ok,data}=tryParse(cell);
+  if(!ok) return cell.trim()? `<div class="raw">${esc(cell)}</div>` : `<div class="empty">— no data —</div>`;
+  const feats = (data && data.features) || [];
+  if(!feats.length) return `<div class="empty">— none extracted —</div>`;
+  return feats.map(f=>{
+    if(f && typeof f==="object" && "feature" in f){
+      const name=String(f.feature||"");
+      const absence=name.toLowerCase().startsWith("evidence for absence of");
+      return `<div class="feat ${absence?"absence":"present"}">
+        <span class="feat-name">${esc(name)}</span>
+        ${f.evidence?`<span class="feat-ev">“${esc(f.evidence)}”</span>`:""}
+        ${f.time?`<span class="badge time">🕑 ${esc(f.time)}</span>`:""}
+        ${renderSchema(f.schema)}
+      </div>`;
+    }
+    if(f && typeof f==="object" && ("Additional Features" in f || "global time" in f || "global_time" in f)){
+      const t = f["Additional Features"]!=null ? f["Additional Features"]
+              : (f["global time"]!=null ? f["global time"] : f["global_time"]);
+      return `<div class="feat global"><span class="badge global">Additional Features</span> <span class="feat-ev">${esc(t)}</span></div>`;
+    }
+    return `<div class="feat"><span class="raw">${esc(JSON.stringify(f))}</span></div>`;
+  }).join("");
+}
+function renderTreatments(cell){
+  const {ok,data}=tryParse(cell);
+  if(!ok) return cell.trim()? `<div class="raw">${esc(cell)}</div>` : `<div class="empty">— no data —</div>`;
+  const ts=(data && data.treatments)||[];
+  if(!ts.length) return `<div class="empty">— none —</div>`;
+  return ts.map(t=>{
+    const fl = t.feature_list===true;
+    return `<div class="treat">
+      <span class="treat-name">${esc(t.treatment||"(unnamed)")}</span>
+      <span class="badge ${fl?"yes":"no"}">${fl?"treats a listed feature":"not on feature list"}</span>
+      <div class="treat-meta">
+        <span><b>response:</b> ${esc(t.response||"—")}</span>
+        <span><b>timing:</b> ${esc(t.timing||"—")}</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+function renderPMH(cell){
+  const {ok,data}=tryParse(cell);
+  if(!ok) return cell.trim()? `<div class="raw">${esc(cell)}</div>` : `<div class="empty">— no data —</div>`;
+  const items=(data && data.past_medical_history)||[];
+  if(!items.length) return `<div class="empty">— none —</div>`;
+  return items.map(p=>{
+    if(p && typeof p==="object" && "condition" in p){
+      const detail = p.detail!=null ? String(p.detail) : "";
+      const hasDetail = detail.trim() && detail.trim().toLowerCase()!=="unavailable";
+      return `<div class="pmh">
+        <span class="pmh-cond">${esc(p.condition||"")}</span>
+        ${hasDetail? `<span class="pmh-detail">${esc(detail)}</span>`
+                   : `<span class="pmh-detail na">detail unavailable</span>`}
+      </div>`;
+    }
+    return `<div class="pmh"><span class="raw">${esc(JSON.stringify(p))}</span></div>`;
+  }).join("");
+}
+
+/* plain-text versions for Excel export */
+function featuresText(cell){
+  const {ok,data}=tryParse(cell); if(!ok) return cell.trim();
+  const feats=(data&&data.features)||[]; if(!feats.length) return "(none)";
+  const schemaText = (schema)=>{
+    if(!schema||typeof schema!=="object") return "";
+    const grp=(label,arr)=>Array.isArray(arr)&&arr.length
+      ? `  — ${label}: ` + arr.map(v=>`${v.variable_id}=${v.value==null?"":v.value}${v.unit?` (${v.unit})`:""}`).join("; ")
+      : "";
+    return grp("timing",schema.timing)+grp("details",schema.details);
+  };
+  return feats.map(f=>{
+    if(f&&typeof f==="object"&&"feature" in f)
+      return `• ${f.feature}${f.evidence?`  — evidence: "${f.evidence}"`:""}${f.time?`  — time: ${f.time}`:""}${schemaText(f.schema)}`;
+    if(f&&("Additional Features" in f||"global time" in f||"global_time" in f)){
+      const t = f["Additional Features"]!=null ? f["Additional Features"]
+              : (f["global time"]!=null ? f["global time"] : f["global_time"]);
+      return `• [Additional Features] ${t}`;
+    }
+    return `• ${JSON.stringify(f)}`;
+  }).join("\n");
+}
+function treatmentsText(cell){
+  const {ok,data}=tryParse(cell); if(!ok) return cell.trim();
+  const ts=(data&&data.treatments)||[]; if(!ts.length) return "(none)";
+  return ts.map(t=>`• ${t.treatment||"(unnamed)"}  [${t.feature_list===true?"on feature list":"not on list"}]  — response: ${t.response||"—"}  — timing: ${t.timing||"—"}`).join("\n");
+}
+function pmhText(cell){
+  const {ok,data}=tryParse(cell); if(!ok) return cell.trim();
+  const items=(data&&data.past_medical_history)||[]; if(!items.length) return "(none)";
+  return items.map(p=>{
+    if(p&&typeof p==="object"&&"condition" in p)
+      return `• ${p.condition}${p.detail?`  — ${p.detail}`:""}`;
+    return `• ${JSON.stringify(p)}`;
+  }).join("\n");
+}
+
+/* ---------- load / display ---------- */
+function loadText(text, filename){
+  const rows=parseCSV(text).filter(r=>r.length && r.some(c=>String(c).trim()!==""));
+  if(!rows.length){ alert("This file appears to be empty."); return; }
+  const idx=detectCols(rows[0]);
+  RECORDS = rows.slice(1).map(r=>({
+    note: r[idx.note]||"",
+    featuresCell: idx.features>=0? (r[idx.features]||"") : "",
+    treatmentsCell: idx.treatments>=0? (r[idx.treatments]||"") : "",
+    pmhCell: idx.pmh>=0? (r[idx.pmh]||"") : ""
+  }));
+  FILEBASE = (filename||"output").replace(/\.[^.]+$/,"");
+  document.getElementById("fname").textContent = filename||"";
+  render();
+}
+
+function render(){
+  const q=(document.getElementById("search").value||"").trim().toLowerCase();
+  const list=document.getElementById("list");
+  let totFeat=0, totTreat=0, totPmh=0, shown=0;
+  const html = RECORDS.map((rec,i)=>{
+    const fCount=(tryParse(rec.featuresCell).data?.features||[]).length;
+    const tCount=(tryParse(rec.treatmentsCell).data?.treatments||[]).length;
+    const pCount=(tryParse(rec.pmhCell).data?.past_medical_history||[]).length;
+    totFeat+=fCount; totTreat+=tCount; totPmh+=pCount;
+    const hay=(rec.note+" "+rec.featuresCell+" "+rec.treatmentsCell+" "+rec.pmhCell).toLowerCase();
+    if(q && !hay.includes(q)) return "";
+    shown++;
+    return `<div class="card">
+      <div class="card-head">
+        <span class="rownum">Row ${i+2}</span>
+        <span class="mini">${fCount} feature${fCount!==1?"s":""} · ${tCount} treatment${tCount!==1?"s":""} · ${pCount} PMH item${pCount!==1?"s":""}</span>
+      </div>
+      <div class="note">${esc(rec.note)}</div>
+      <div class="cols">
+        <div class="col"><h3>Extracted Features</h3>${renderFeatures(rec.featuresCell)}</div>
+        <div class="col"><h3>Treatments</h3>${renderTreatments(rec.treatmentsCell)}</div>
+        <div class="col"><h3>Past Medical History</h3>${renderPMH(rec.pmhCell)}</div>
+      </div>
+    </div>`;
+  }).join("");
+  list.innerHTML = html || `<div class="drop"><h2>No matches</h2><p>Nothing matches “${esc(q)}”.</p></div>`;
+  document.getElementById("drop").classList.add("hidden");
+  document.getElementById("search").classList.remove("hidden");
+  document.getElementById("export").disabled = RECORDS.length===0;
+  document.getElementById("stats").innerHTML =
+    `<b>${RECORDS.length}</b> notes${q?` (<b>${shown}</b> shown)`:""} · <b>${totFeat}</b> features · <b>${totTreat}</b> treatments · <b>${totPmh}</b> PMH`;
+}
+
+/* ---------- Excel export (HTML-table .xls; opens in Excel/Sheets) ---------- */
+function xcell(s){ return esc(s).replace(/\n/g,"<br>"); }
+function exportExcel(){
+  let h=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <head><meta charset="utf-8"><style>
+   table{border-collapse:collapse} td,th{border:1px solid #b8c0cc;padding:6px 8px;vertical-align:top;font-family:Calibri,Arial,sans-serif;font-size:11pt}
+   th{background:#2c5282;color:#fff;text-align:left}
+   td.note{width:420px} td.col{width:320px}
+  </style></head><body><table>
+  <tr><th>Row</th><th>Clinical Note</th><th>Extracted Features</th><th>Treatments</th><th>Past Medical History</th></tr>`;
+  RECORDS.forEach((r,i)=>{
+    h+=`<tr><td>${i+2}</td><td class="note">${xcell(r.note)}</td>`+
+       `<td class="col">${xcell(featuresText(r.featuresCell))}</td>`+
+       `<td class="col">${xcell(treatmentsText(r.treatmentsCell))}</td>`+
+       `<td class="col">${xcell(pmhText(r.pmhCell))}</td></tr>`;
+  });
+  h+=`</table></body></html>`;
+  const blob=new Blob(["﻿"+h],{type:"application/vnd.ms-excel"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=FILEBASE+"_readable.xls";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---------- wiring ---------- */
+document.getElementById("file").addEventListener("change", e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("export").addEventListener("click", exportExcel);
+const drop=document.getElementById("drop");
+["dragover"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+document.addEventListener("drop", e=>{
+  const f=e.dataTransfer.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+</script>
+</body>
+</html>

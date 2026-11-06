@@ -1,0 +1,10 @@
+# Dependencies for the MIMIC scripts. Installed into the project .venv at the
+# repo root, which the whole project shares -- code stays separated by directory
+# (see README), not by interpreter.
+#
+#   .venv/bin/pip install -r mimic-pipeline/requirements.txt
+#
+# Output verified byte-identical under pandas 2.3.3 and 3.0.3 (Python 3.13).
+pandas>=2.0
+groq>=0.11          # triage stage
+python-dotenv>=1.0  # GROQ_API_KEY from the project-root .env

@@ -1,0 +1,312 @@
+===============================================================================
+ pdf_parser — PROJECT SUMMARY
+ Faithful PDF -> structured JSON for clinical surveillance protocols
+ (built & validated against: bv-hv-protocol-current.pdf — CDC NHSN
+  Hemovigilance Component Protocol v3.0, 34 pages)
+===============================================================================
+
+GOAL
+-----
+Convert a well-structured medical PDF into a faithful, structured JSON
+representation for a downstream RAG pipeline. The two failure modes actively
+guarded against are (1) SILENT OMISSION of content and (2) TABLE FRAGMENTATION.
+Inference provider is Groq (model: qwen/qwen3.6-27b, a vision + reasoning model).
+
+
+===============================================================================
+ 1. PIPELINE WORKFLOW
+===============================================================================
+
+  INPUT PDF
+     |
+     v
+  +--------------------------------------------------------------+
+  | PASS 1 — SKELETON  (skeleton.py, deterministic, NO LLM)      |
+  |  - PyMuPDF: TOC + heading regex -> sections & page spans      |
+  |  - inventory: Table N. / Figure N. + fingerprinted unlabeled |
+  |    tables (archived reaction tables, version-history table)  |
+  |  - per-page normalized text (headers/footers stripped)       |
+  |  - page -> section map                                       |
+  |  -> writes skeleton.json (inspectable, reusable backbone)     |
+  +--------------------------------------------------------------+
+     |  (skeleton = both VLM context AND validation checklist)
+     v
+  +--------------------------------------------------------------+
+  | PASS 2 — VISION  (vision_parser.py, Groq VLM, page by page)  |
+  |  - render page -> PNG -> base64 image                         |
+  |  - prompt = system.md + page_user.md with per-page context:  |
+  |      section, expected tables/figures, layout hint,          |
+  |      CONTINUATION hint (skeleton-driven, sequential)         |
+  |  - temperature=0, JSON mode, reasoning_effort="none"         |
+  |  - retry+backoff on 429/transient; truncation detector;      |
+  |    json_validate_failed handled as incomplete -> retry       |
+  |  -> per-page PageParse (fixed schema), cached per page        |
+  +--------------------------------------------------------------+
+     |
+     v
+  +--------------------------------------------------------------+
+  | STITCH  (stitching.py)                                       |
+  |  - merge cross-page TABLE fragments into one table           |
+  |  - merges ONLY on continuation signals (continued/_from,     |
+  |    repeated label, "(cont'd)"); page-adjacency bound         |
+  |  - e.g. Table 8 fragments p19-22 -> one table page_span[19,22]|
+  +--------------------------------------------------------------+
+     |
+     v
+  +--------------------------------------------------------------+
+  | ASSEMBLE  (pipeline.py)                                      |
+  |  - group blocks into sections by start-page -> section map   |
+  |  - assign stable block_ids (s<sec>-b<idx>)                   |
+  |  - build Document (title, version, pages, parsed_on, ...)    |
+  +--------------------------------------------------------------+
+     |
+     v
+  +--------------------------------------------------------------+
+  | VALIDATE  (validation.py) — deterministic acceptance gate    |
+  |  1 schema  2 inventory  3 coverage  4 structure  (HARD)      |
+  |  5 golden facts (FLAG)   -> report names check + section/page |
+  +--------------------------------------------------------------+
+     |
+     v
+  FINAL <stem>.json  +  PASS/FAIL validation report
+  (exit code non-zero on hard failures)
+
+  Driven by cli.py:  python -m pdf_parser.cli --input <pdf> --output <json>
+
+
+===============================================================================
+ 2. MODULE FILES
+===============================================================================
+
+ File                | Responsibility
+ --------------------|----------------------------------------------------------
+ __init__.py         | package marker + overview docstring
+ config.py           | all constants: model id, token limits, OTPM ceiling,
+                     | reasoning effort, DPI, coverage threshold, retry/backoff,
+                     | heading/header regexes, table fingerprints
+ schema.py           | Pydantic v2 models: Skeleton/inventory + final
+                     | Document->Section->ContentBlock (prose|table|figure)
+ skeleton.py         | Pass 1: deterministic structure + inventory + page text
+ vision_parser.py    | Pass 2: Groq VLM, retry/truncation, continuation context
+ stitching.py        | cross-page table-fragment merge
+ pipeline.py         | orchestration + assemble + caching + single-page
+ validation.py       | layered deterministic gate + report
+ cli.py              | command-line entrypoint + stage flags
+ prompts/system.md   | fixed-schema contract + faithfulness rules
+ prompts/page_user.md| per-page instruction template (placeholders)
+ tests/              | test_skeleton, test_vision_parser, test_stitching,
+                     | test_validation, test_pipeline, golden_facts.py
+ README.md           | usage, config, schema, validation, extending golden facts
+ requirements.txt    | PyMuPDF, pydantic>=2, python-dotenv, groq, pytest
+
+
+===============================================================================
+ 3. CORRECTIONS / FIXES MADE (chronological, by area)
+===============================================================================
+
+ #  | Area      | Problem found                          | Fix
+ ---|-----------|----------------------------------------|------------------------
+ 1  | skeleton  | Two-column reorder (left-then-right)   | Use stable (y,x) sort
+    |           | scrambled reaction tables; broke       | for coverage baseline;
+    |           | "within 12 hours of cessation"         | two_column kept as an
+    |           |                                        | advisory hint only
+ ---|-----------|----------------------------------------|------------------------
+ 2  | skeleton  | Coverage baseline assumed contiguous   | Coverage made TOKEN-
+    |           | text; dense tables interleave cells    | level (order-indep.);
+    |           |                                        | tables owned by VLM
+ ---|-----------|----------------------------------------|------------------------
+ 3  | skeleton  | 8 archived Section-6 reaction tables   | Detect by column triplet
+    |           | (p24-31) have NO "Table N." label ->   | Case Definition /
+    |           | missing from inventory checklist       | Severity / Imputability;
+    |           |                                        | label "Archived: <ACR>"
+ ---|-----------|----------------------------------------|------------------------
+ 4  | skeleton  | Page 24 banner "Adverse Reactions"     | Anchor reaction name to
+    |           | picked instead of "Allergic reaction"  | the line just above the
+    |           |                                        | Note:/triplet row
+ ---|-----------|----------------------------------------|------------------------
+ 5  | skeleton  | Running header had TWO variants        | Widen header regex to
+    |           | (".. Protocol v3.0" and ".. Surveil-   | match optional
+    |           | lance Protocol v3.0"); 2nd leaked into | "Surveillance" -> all 33
+    |           | body text on 11 pages                  | content-page headers
+ ---|-----------|----------------------------------------|------------------------
+ 6  | skeleton  | Section-7 version-history table        | Detect by header finger-
+    |           | (p32-34, no "Table N." label) flagged  | print Version / Release
+    |           | as "unexpected" by validation          | Date / Summary of
+    |           |                                        | Revisions; dedupe to one
+    |           |                                        | entry (header repeats)
+ ---|-----------|----------------------------------------|------------------------
+ 7  | groq      | max_completion_tokens=32768 exceeded   | Lower to 8192 (retry
+    |           | tier OTPM limit 32000 -> EVERY request | 16384); add
+    |           | 429 "Request too large" instantly      | MODEL_OTPM_LIMIT=32000
+    |           |                                        | + import-time assert
+ ---|-----------|----------------------------------------|------------------------
+ 8  | groq      | Groq SDK internal retries stacked on   | Build client with
+    |           | top of ours -> hammered endpoint       | max_retries=0
+ ---|-----------|----------------------------------------|------------------------
+ 9  | groq      | qwen3 reasoning <think> prefix broke   | reasoning_effort="none"
+    |           | JSON mode on complex pages -> 400      | (configurable); clean,
+    |           | json_validate_failed, EMPTY output     | fast, low-token JSON
+ ---|-----------|----------------------------------------|------------------------
+ 10 | groq      | json_validate_failed crashed the page  | Treat it as an
+    |           | (not handled, not truncation)          | "incomplete response":
+    |           |                                        | retry at higher budget,
+    |           |                                        | then surface (no silent
+    |           |                                        | accept)
+ ---|-----------|----------------------------------------|------------------------
+ 11 | vision/   | Table 8 (incident codes) pages 20-22   | DETERMINISTIC, FIRM
+    | stitch    | parsed as PROSE -> table fragmented,   | continuation hint driven
+    |           | only p19 in the table                  | by skeleton (same section,
+    |           |                                        | no new label) -> each
+    |           |                                        | page emits table rows
+ ---|-----------|----------------------------------------|------------------------
+ 12 | vision/   | Continuation chain via model's own     | Drive hint from skeleton
+    | stitch    | continued flag broke mid-run (p20 set  | structure, not the model
+    |           | continued=False)                       | flag
+ ---|-----------|----------------------------------------|------------------------
+ 13 | vision/   | Tail page invented its own columns ->  | Carry previous page's
+    | validate  | merged Table 8 had rows with keys not  | table columns forward so
+    |           | in header (structure HARD fail)        | continuations reuse the
+    |           |                                        | real header
+ ---|-----------|----------------------------------------|------------------------
+ 14 | vision    | Model-flag continuation fallback could | Removed fallback;
+    |           | mislabel a page following a single-    | continuation is purely
+    |           | page table (e.g. p14 after Table 4)    | skeleton-driven
+ ---|-----------|----------------------------------------|------------------------
+ 15 | validate  | Golden facts checked document-wide ->  | Scope EVERY golden fact
+    |           | recurring values (DHTR vs DSTR 24h/28d;| to its specific table by
+    |           | HTR adult vs paeds BP) matched wrongly | page; uniformly scoped
+ ---|-----------|----------------------------------------|------------------------
+ 16 | (note)    | MuPDF "No common ancestor in structure | Benign warning; the
+    |           | tree" printed on page 34               | structure tree is not
+    |           |                                        | used (left as-is)
+
+
+===============================================================================
+ 4. JSON SCHEMA (shallow outline; page is METADATA, not a level)
+===============================================================================
+
+ Document(title, version, source_filename, total_pages, parsed_on, sections[])
+   Section(section_number, title, page_span[start,end], content[])
+     ProseBlock  : type, subheading?, text, page, block_id
+     TableBlock  : type, label, caption, page_span, columns[], rows[{cells}],
+                   notes[], footnotes[], continued_from, continued, block_id
+     FigureBlock : type, label, caption, description, page, abbreviations?,
+                   block_id
+
+ Notes: blocks stay FLAT under a section (one level). subheading is a label on a
+ prose block, not a nested container. block_id (s<sec>-b<idx>) aids RAG citation
+ and validation traceability.
+
+
+===============================================================================
+ 5. VALIDATION GATE
+===============================================================================
+
+ #  | Check                | Severity | What it enforces
+ ---|----------------------|----------|-----------------------------------------
+ 1  | Schema conformance   | HARD     | output validates against Pydantic models
+ 2  | Inventory complete   | HARD     | each skeleton table (17) + figure (3)
+    |                      |          | appears EXACTLY ONCE after stitching,
+    |                      |          | matched BY PAGE; extras flagged as likely
+    |                      |          | unstitched fragments
+ 3  | Coverage round-trip  | HARD     | TOKEN-level, order-independent recall of
+    |                      |          | Pass-1 text >= 0.95 (anti-omission net;
+    |                      |          | baseline = extractor text, not absolute)
+ 4  | Structural invariants| HARD     | tables >=1 row, no stray cell columns;
+    |                      |          | block pages within section span + correct
+    |                      |          | parent; non-decreasing reading order;
+    |                      |          | figures have non-empty descriptions
+ 5  | Golden facts         | FLAG     | specific clinical values survived (below)
+
+ Inventory now = 17 tables (8 numbered + 8 archived reaction + 1 version
+ history) + 3 figures.
+
+
+===============================================================================
+ 6. GOLDEN FACTS (all TABLE-SCOPED by page; flag-only)
+===============================================================================
+
+ Name                          | Page | Asserts
+ ------------------------------|------|------------------------------------------
+ taco_window_12h               | 14   | TACO onset within 12 hours
+ trali_window_6h               | 15   | TRALI onset within 6 hours
+ ahtr_onset_24h                | 13   | AHTR onset within 24 hours
+ incident_codes_present        | 19   | Table 8 contains UT 06 and PC 03
+ babesia_footnote_14_states    | 8    | Table 2 footnote: 14 endemic states
+ trali_pao2_fio2_300           | 15   | PaO2/FiO2 <= 300 mm Hg
+ dhtr_antibody_window_24h_28d  | 25   | DHTR antibodies 24 hours to 28 days
+ htr_adult_systolic_bp         | 28   | HTR adult systolic BP 30 / 80 mmHg
+ ptp_definite_timing_5_12d     | 29   | PTP definite occurs 5-12 days
+ ptp_thrombocytopenia_20pct    | 29   | PTP platelets to < 20% of baseline
+ tad_respiratory_distress_24h  | 30   | TAD respiratory distress within 24h
+ ahtr_immune_dat_antiigg       | 13   | AHTR positive DAT for anti-IgG
+ taco_bnp_biomarker            | 14   | TACO cites natriuretic peptide (BNP)
+ table8_tail_codes_present     | 19   | stitched Table 8 keeps MS 99 / UT 26
+                               |      | (p22) -> proves the tail wasn't dropped
+
+
+===============================================================================
+ 7. KEY CONFIG (config.py)
+===============================================================================
+
+ Constant                       | Value             | Why
+ -------------------------------|-------------------|--------------------------
+ VISION_MODEL                   | qwen/qwen3.6-27b  | single source of truth
+ MAX_COMPLETION_TOKENS          | 8192              | per-page output budget
+ MAX_COMPLETION_TOKENS_RETRY    | 16384             | budget for one retry
+ MODEL_OTPM_LIMIT               | 32000             | tier ceiling; budgets MUST
+                                |                   | stay below (assert guards)
+ REASONING_EFFORT               | "none"            | qwen3 reasoning off -> clean
+                                |                   | JSON; None to omit param
+ TEMPERATURE                    | 0                 | determinism
+ RENDER_DPI                     | 200               | legible small-font tables
+ COVERAGE_THRESHOLD             | 0.95              | coverage recall gate
+ MAX_RETRIES / BACKOFF_*        | 5 / exp+jitter    | 429 + transient handling
+
+
+===============================================================================
+ 8. TESTS  (55 total, all passing; mocked VLM — NO real Groq calls / spend)
+===============================================================================
+
+ File                   | Count | Focus
+ -----------------------|-------|-----------------------------------------------
+ test_skeleton.py       | 12    | sections/spans, inventory (incl. archived +
+                        |       | version history), headers stripped, golden
+                        |       | tokens survive
+ test_vision_parser.py  | 18    | success/truncation/retry, 429-handling,
+                        |       | reasoning_effort, json_validate_failed,
+                        |       | continuation threading + reset
+ test_stitching.py      | 7     | Table 8 4-frag merge [19,22]; 8 archived
+                        |       | tables stay DISTINCT; signal-only merging
+ test_validation.py     | 14    | each gate; archived completeness; coverage
+                        |       | order-independence; golden scoping + tail drop
+ test_pipeline.py       | 4     | assemble + stitch wiring; CLI skeleton-only
+
+
+===============================================================================
+ 9. HOW TO RUN
+===============================================================================
+
+ # Pass 1 only — inspect skeleton before any VLM spend
+ python -m pdf_parser.cli --input bv-hv-protocol-current.pdf --skeleton-only
+
+ # Cheap isolated first VLM call — one page
+ python -m pdf_parser.cli --input bv-hv-protocol-current.pdf --single-page 19
+
+ # Full run -> writes <stem>.json + prints validation report
+ python -m pdf_parser.cli --input bv-hv-protocol-current.pdf -v
+
+ # Tests
+ python -m pytest pdf_parser/tests/ -q
+
+ Flags: --skeleton-only, --single-page N, --skip-validation, --force-skeleton,
+        --no-cache, --coverage-threshold F, -v / -vv
+ Caching: skeleton.json + per-page VLM results cached under
+          <stem>_pdfparser/ ; re-runs are cheap and resume on transient 429s.
+
+
+===============================================================================
+ FINAL STATE: full 34-page run passes — Table 8 stitched [19,22] with
+ consistent columns, version history [32,34], 17 tables + 3 figures all
+ accounted for, coverage ~0.99, validation PASS. 55/55 tests green.
+===============================================================================

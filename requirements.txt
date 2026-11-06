@@ -1,0 +1,26 @@
+# Everything needed to run every module in this repository, pinned to the exact
+# versions the published results were produced with (tested on Python 3.13).
+#
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements.txt
+#
+# Their own dependencies (numpy, httpx, ...) are resolved by pip automatically.
+
+# Model clients
+groq==1.5.0             # Groq API: qwen3.6-27b, gpt-oss-120b, and every Groq-backed stage
+openai==3.3.0           # OpenAI-compatible client, used for Kimi K3 via OpenRouter
+
+# Data handling
+pandas==3.0.3           # mimic-pipeline, pmc-pipeline, model_evaluation_pipeline
+openpyxl==3.1.5         # clinical_feature_extractor: .xlsx input/output
+ijson==3.5.1            # pmc-pipeline: streams the large PMC-Patients JSON
+
+# PDF parsing (pdf_parser)
+PyMuPDF==1.27.2.3       # TOC, positioned text, page-image rendering (fitz)
+pydantic==2.13.4        # fixed JSON schema for the parsed protocol
+
+# Configuration
+python-dotenv==1.2.2    # reads the API keys from the project-root .env
+
+# Tests
+pytest==9.1.1

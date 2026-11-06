@@ -1,0 +1,67 @@
+# Environment / secrets
+.env
+**/.env
+*.env
+
+# Datasets: every downloaded or derived dataset lives under one gitignored
+# umbrella, each in its own subfolder (e.g. kept-gitignored/mimic-iv-note/).
+# PhysioNet's DUA forbids redistributing MIMIC-IV (and the 1.1 GB file exceeds
+# GitHub's 100 MB limit); anything DERIVED from a dataset is equally covered.
+# Code lives in <dataset>-pipeline/ folders at the repo root (committed); data
+# never leaves kept-gitignored/. See DATASETS.md.
+kept-gitignored/
+
+# Defense-in-depth: even if a stray data file is written into a pipeline code
+# folder, it must never become committable.
+*-pipeline/*.csv
+*-pipeline/*.csv.gz
+*-pipeline/*.json
+*-pipeline/*.jsonl
+*-pipeline/*.ipynb
+
+# Python
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Regenerable model-output cache
+**/output/cache/
+# Per-source / per-model caches (cache_golden_qwen, cache_pmc_kimi, ...) hold
+# the full clinical note text -- they must never be committed.
+**/output/cache_*/
+
+# CDC NHSN protocol PDF and everything parsed from it -- not redistributed here.
+# Download it yourself (see "NHSN protocol PDF" in the root README).
+/bv-hv-protocol-current.pdf
+/bv-hv-protocol-current.json
+/bv-hv-protocol-current_pdfparser/
+
+# Pipeline artifacts
+# Vocabulary dedup audit -- regenerated locally by reaction_extractor (and by its
+# test suite), not shipped.
+reaction_extractor/output/dedup_removed_items.json
+pdf_parser/output/*.json
+pdf_parser/output/*.log
+
+# OS
+.DS_Store
+
+# Manuscript / working notes — kept locally, NOT part of the public code repo.
+/methodology_section.md
+/writepaper/
+/summary.txt
+
+# Local experiment scratch — regenerable pipeline outputs, never committed.
+/pipeline_test_me/
+
+# Loose local artifacts (macOS clippings, personal notes) at the repo root.
+*.textClipping
+
+# Retired prompts — kept on disk for reference to the old single-stage design,
+# but no longer loaded by any code (superseded by the multi-stage prompts).
+/clinical_feature_extractor/prompts/system.md
+/clinical_feature_extractor/prompts/time.md.orig

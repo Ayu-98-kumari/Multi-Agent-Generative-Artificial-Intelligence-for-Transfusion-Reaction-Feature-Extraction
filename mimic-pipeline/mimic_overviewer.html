@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIMIC — Transfusion Triage Viewer</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2933; --muted:#6b7280; --line:#e3e8ef;
+    --accent:#2c5282;
+    --genuine:#1f7a4d; --genuine-bg:#e8f6ee;
+    --ruled:#b02a2a;   --ruled-bg:#fdecec;
+    --mention:#8a5a00; --mention-bg:#fdf3e0;
+    --other:#5a6473;   --other-bg:#eef1f5;
+    --quote-bg:#fff9e6; --evidence:#374151;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b212b; --ink:#e6eaf0; --muted:#9aa4b2; --line:#2a323e;
+      --accent:#7ab0ff;
+      --genuine:#5fd39a; --genuine-bg:#123024;
+      --ruled:#ff9b9b;   --ruled-bg:#3a1a1a;
+      --mention:#e6b566; --mention-bg:#332810;
+      --other:#9aa4b2;   --other-bg:#232a34;
+      --quote-bg:#2a2415; --evidence:#c4ccd6;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.5}
+  header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);
+         padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;
+       font-size:13px;cursor:pointer;font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  input[type=file]{display:none}
+  #search{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+          font-size:13px;min-width:200px}
+  select#verdict{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+          font-size:13px;cursor:pointer}
+  select#verdict:hover{border-color:var(--accent)}
+  .stats{font-size:12px;color:var(--muted)}
+  .stats b{color:var(--ink)}
+  main{max-width:1100px;margin:0 auto;padding:20px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:60px 20px;text-align:center;color:var(--muted);
+        background:var(--card)}
+  .drop.drag{border-color:var(--accent);background:var(--genuine-bg)}
+  .drop h2{color:var(--ink);font-weight:600;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:18px;overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);
+             background:linear-gradient(0deg,transparent,rgba(0,0,0,.015))}
+  .rownum{font-weight:700;color:var(--accent);font-size:13px;background:var(--genuine-bg);
+          border-radius:6px;padding:2px 9px}
+  .noteid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--muted)}
+  .card-head .mini{font-size:11px;color:var(--muted)}
+  .badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 10px;border-radius:20px;
+         vertical-align:middle;text-transform:lowercase;letter-spacing:.2px}
+  .badge.genuine{background:var(--genuine-bg);color:var(--genuine)}
+  .badge.ruled_out{background:var(--ruled-bg);color:var(--ruled)}
+  .badge.mention_only{background:var(--mention-bg);color:var(--mention)}
+  .badge.error,.badge.other{background:var(--other-bg);color:var(--other)}
+  .badge.rx{background:var(--other-bg);color:var(--other);text-transform:none;font-weight:500}
+  .note{padding:14px 16px;font-size:14px;white-space:pre-wrap;word-break:break-word;border-bottom:1px solid var(--line);
+        color:var(--ink);max-height:520px;overflow:auto}
+  .triage{padding:6px 16px 14px}
+  .row{padding:10px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row h3{margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .row .val{font-size:14px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  .row .val.quote{background:var(--quote-bg);border-radius:8px;padding:8px 12px;font-style:italic;color:var(--evidence)}
+  .meta{display:flex;flex-wrap:wrap;gap:16px;padding:10px 16px 14px;font-size:12px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:500}
+  .empty{color:var(--muted);font-size:12.5px;font-style:italic}
+  .hidden{display:none}
+  footer{text-align:center;color:var(--muted);font-size:11px;padding:24px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🩸 MIMIC — Transfusion Triage Viewer</h1>
+  <label class="btn primary" for="file">Open CSV…</label>
+  <input type="file" id="file" accept=".csv">
+  <span id="fname" class="stats"></span>
+  <div class="spacer"></div>
+  <select id="verdict" class="hidden"></select>
+  <input id="search" type="search" placeholder="Search notes / reasons / quotes…" class="hidden">
+  <span id="stats" class="stats"></span>
+  <button id="export" class="btn" disabled>⬇ Export to Excel</button>
+</header>
+
+<main>
+  <div id="drop" class="drop">
+    <h2>Open a triage / summaries CSV</h2>
+    <p>Click <b>Open CSV…</b> above, or drag a <code>.csv</code> file here.<br>
+       Full note text is shown untruncated. Everything runs locally in your browser — nothing is uploaded.</p>
+  </div>
+  <div id="list"></div>
+</main>
+<footer>Local viewer · full clinical note plus triage verdict, reason &amp; supporting quote · use “Export to Excel” to share.</footer>
+
+<script>
+"use strict";
+let RECORDS = [];        // array of row-objects keyed by header name
+let HEADERS = [];
+let FILEBASE = "mimic_overview";
+
+/* ---------- robust CSV parser (handles quotes, commas & newlines in fields) ---------- */
+function parseCSV(text){
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+  const rows=[]; let row=[]; let field=""; let i=0; let inQ=false;
+  while(i < text.length){
+    const c=text[i];
+    if(inQ){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field+='"'; i+=2; continue; }
+        inQ=false; i++; continue;
+      }
+      field+=c; i++; continue;
+    }
+    if(c === '"'){ inQ=true; i++; continue; }
+    if(c === ','){ row.push(field); field=""; i++; continue; }
+    if(c === '\r'){ i++; continue; }
+    if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=""; i++; continue; }
+    field+=c; i++;
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function esc(s){ return String(s==null?"":s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+/* find a header by candidate names (case-insensitive, exact-ish) */
+function col(cands){
+  const low = HEADERS.map(h=>h.toLowerCase());
+  for(const c of cands){ const k=low.indexOf(c); if(k>=0) return HEADERS[k]; }
+  return null;
+}
+function val(rec,name){ return name && rec[name]!=null ? rec[name] : ""; }
+
+function verdictClass(v){
+  const k=String(v||"").toLowerCase();
+  return (k==="genuine"||k==="ruled_out"||k==="mention_only"||k==="error") ? k : "other";
+}
+
+/* ---------- load ---------- */
+function loadText(text, filename){
+  const rows=parseCSV(text).filter(r=>r.length && r.some(c=>String(c).trim()!==""));
+  if(!rows.length){ alert("This file appears to be empty."); return; }
+  HEADERS = rows[0].map(h=>String(h).trim());
+  RECORDS = rows.slice(1).map(r=>{
+    const o={}; HEADERS.forEach((h,i)=>o[h]= r[i]!=null ? r[i] : ""); return o;
+  });
+  FILEBASE = (filename||"mimic_overview").replace(/\.[^.]+$/,"");
+  document.getElementById("fname").textContent = filename||"";
+  buildVerdictFilter();
+  render();
+}
+
+function buildVerdictFilter(){
+  const sel=document.getElementById("verdict");
+  const vc=col(["verdict"]);
+  if(!vc){ sel.classList.add("hidden"); sel.innerHTML=""; return; }
+  const counts={};
+  RECORDS.forEach(r=>{ const v=String(r[vc]||"—"); counts[v]=(counts[v]||0)+1; });
+  let html=`<option value="">All verdicts (${RECORDS.length})</option>`;
+  Object.keys(counts).sort().forEach(v=>{ html+=`<option value="${esc(v)}">${esc(v)} (${counts[v]})</option>`; });
+  sel.innerHTML=html;
+  sel.classList.remove("hidden");
+}
+
+/* ---------- render ---------- */
+function render(){
+  const q=(document.getElementById("search").value||"").trim().toLowerCase();
+  const vc=col(["verdict"]);
+  const vf=vc ? (document.getElementById("verdict").value||"") : "";
+  const list=document.getElementById("list");
+
+  const cNote=col(["text","clinical text","clinical note","note","summary"]);
+  const cId=col(["note_id","note id","id"]);
+  const cSubj=col(["subject_id","subject id"]);
+  const cHadm=col(["hadm_id","hadm id"]);
+  const cReason=col(["reason"]);
+  const cQuote=col(["supporting_quote","supporting quote","quote","evidence"]);
+  const cRx=col(["matched_reactions","matched reactions"]);
+  // metadata = any header not already shown as a primary field
+  const primary=new Set([cNote,cId,cSubj,cHadm,cReason,cQuote,cRx,vc].filter(Boolean));
+  const metaCols=HEADERS.filter(h=>!primary.has(h));
+
+  let shown=0;
+  const html=RECORDS.map((rec,i)=>{
+    if(vf && String(val(rec,vc))!==vf) return "";
+    if(q){
+      const hay=HEADERS.map(h=>String(rec[h]||"")).join(" ").toLowerCase();
+      if(!hay.includes(q)) return "";
+    }
+    shown++;
+
+    const verdict=val(rec,vc);
+    const idTxt = cId ? esc(val(rec,cId)) : "";
+    const rx = cRx ? String(val(rec,cRx)).trim() : "";
+
+    let head=`<div class="card-head">
+      <span class="rownum">Row ${i+2}</span>`;
+    if(idTxt) head+=`<span class="noteid">${idTxt}</span>`;
+    if(vc) head+=`<span class="badge ${verdictClass(verdict)}">${esc(verdict||"—")}</span>`;
+    if(rx) head+=`<span class="badge rx">${esc(rx)}</span>`;
+    if(cSubj||cHadm){
+      const bits=[];
+      if(cSubj) bits.push(`subject ${esc(val(rec,cSubj))}`);
+      if(cHadm) bits.push(`hadm ${esc(val(rec,cHadm))}`);
+      head+=`<span class="mini">${bits.join(" · ")}</span>`;
+    }
+    head+=`</div>`;
+
+    const noteHtml = cNote ? `<div class="note">${esc(val(rec,cNote))}</div>` : "";
+
+    let triage="";
+    if(cReason||cQuote){
+      triage=`<div class="triage">`;
+      if(cReason) triage+=`<div class="row"><h3>Reason</h3><div class="val">${esc(val(rec,cReason))||'<span class="empty">— none —</span>'}</div></div>`;
+      if(cQuote){
+        const qv=String(val(rec,cQuote)).trim();
+        triage+=`<div class="row"><h3>Supporting quote</h3>`+
+          (qv?`<div class="val quote">“${esc(qv)}”</div>`:`<div class="empty">— none —</div>`)+`</div>`;
+      }
+      triage+=`</div>`;
+    }
+
+    let meta="";
+    if(metaCols.length){
+      meta=`<div class="meta">`+metaCols.map(h=>{
+        const v=String(rec[h]||"").trim();
+        return v?`<span><b>${esc(h)}:</b> ${esc(v)}</span>`:"";
+      }).join("")+`</div>`;
+    }
+
+    return `<div class="card">${head}${noteHtml}${triage}${meta}</div>`;
+  }).join("");
+
+  list.innerHTML = html || `<div class="drop"><h2>No matches</h2><p>Nothing matches your filter.</p></div>`;
+  document.getElementById("drop").classList.add("hidden");
+  document.getElementById("search").classList.remove("hidden");
+  document.getElementById("export").disabled = RECORDS.length===0;
+  document.getElementById("stats").innerHTML =
+    `<b>${RECORDS.length}</b> rows${(q||vf)?` (<b>${shown}</b> shown)`:""}`;
+}
+
+/* ---------- Excel export (HTML-table .xls; opens in Excel/Sheets) ---------- */
+function xcell(s){ return esc(s).replace(/\n/g,"<br>"); }
+function exportExcel(){
+  let h=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <head><meta charset="utf-8"><style>
+   table{border-collapse:collapse} td,th{border:1px solid #b8c0cc;padding:6px 8px;vertical-align:top;font-family:Calibri,Arial,sans-serif;font-size:11pt}
+   th{background:#2c5282;color:#fff;text-align:left}
+   td.note{width:520px}
+  </style></head><body><table>`;
+  h+=`<tr>`+HEADERS.map(c=>`<th>${esc(c)}</th>`).join("")+`</tr>`;
+  const cNote=col(["text","clinical text","note","summary"]);
+  RECORDS.forEach(rec=>{
+    h+=`<tr>`+HEADERS.map(c=>`<td class="${c===cNote?"note":""}">${xcell(rec[c]||"")}</td>`).join("")+`</tr>`;
+  });
+  h+=`</table></body></html>`;
+  const blob=new Blob(["﻿"+h],{type:"application/vnd.ms-excel"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=FILEBASE+"_readable.xls";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---------- wiring ---------- */
+document.getElementById("file").addEventListener("change", e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("verdict").addEventListener("change", render);
+document.getElementById("export").addEventListener("click", exportExcel);
+const drop=document.getElementById("drop");
+["dragover"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+document.addEventListener("drop", e=>{
+  const f=e.dataTransfer.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+</script>
+</body>
+</html>

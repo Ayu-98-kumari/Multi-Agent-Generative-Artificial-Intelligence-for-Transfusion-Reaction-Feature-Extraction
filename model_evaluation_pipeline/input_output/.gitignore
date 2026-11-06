@@ -1,0 +1,5 @@
+# Ignore everything dropped or generated in this folder (inputs and outputs)...
+*
+# ...but keep the folder and its docs in the repo.
+!.gitignore
+!README.md

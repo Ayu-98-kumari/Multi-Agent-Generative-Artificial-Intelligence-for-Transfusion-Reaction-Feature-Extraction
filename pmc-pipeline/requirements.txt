@@ -1,0 +1,2 @@
+ijson>=3.5
+pandas>=2.0

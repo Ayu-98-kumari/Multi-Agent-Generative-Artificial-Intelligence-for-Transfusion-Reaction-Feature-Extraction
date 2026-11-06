@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transfusion Pipeline — Model Comparison Viewer</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2933; --muted:#6b7280; --line:#e3e8ef;
+    --accent:#2c5282; --present:#1f7a4d; --present-bg:#e8f6ee;
+    --absent:#8a5a00; --absent-bg:#fdf3e0; --global:#5a3fa0; --global-bg:#efeafb;
+    --yes:#1f7a4d; --yes-bg:#e8f6ee; --no:#8892a0; --no-bg:#eef1f5;
+    --evidence:#374151;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b212b; --ink:#e6eaf0; --muted:#9aa4b2; --line:#2a323e;
+      --accent:#7ab0ff; --present:#5fd39a; --present-bg:#123024;
+      --absent:#e6b566; --absent-bg:#332810; --global:#b7a4f0; --global-bg:#241d3a;
+      --yes:#5fd39a; --yes-bg:#123024; --no:#9aa4b2; --no-bg:#232a34; --evidence:#c4ccd6;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.5}
+  header{position:sticky;top:0;z-index:10;background:var(--card);border-bottom:1px solid var(--line);
+         padding:14px 20px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:8px;
+       font-size:13px;cursor:pointer;font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  input[type=file]{display:none}
+  #search{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+          font-size:13px;min-width:200px}
+  .stats{font-size:12px;color:var(--muted)}
+  .stats b{color:var(--ink)}
+  main{max-width:1400px;margin:0 auto;padding:20px}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:60px 20px;text-align:center;color:var(--muted);
+        background:var(--card)}
+  .drop.drag{border-color:var(--accent);background:var(--present-bg)}
+  .drop h2{color:var(--ink);font-weight:600;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:18px;overflow:hidden}
+  .card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);
+             background:linear-gradient(0deg,transparent,rgba(0,0,0,.015))}
+  .rownum{font-weight:700;color:var(--accent);font-size:13px;background:var(--present-bg);
+          border-radius:6px;padding:2px 9px}
+  .card-head .mini{font-size:11px;color:var(--muted)}
+  .card-head .idtag{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted)}
+  .note{padding:14px 16px;font-size:14px;white-space:pre-wrap;border-bottom:1px solid var(--line);color:var(--ink)}
+  .cols{display:grid;grid-template-columns:repeat(var(--n,3),1fr);gap:0}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .col{padding:14px 16px}
+  .col:not(:last-child){border-right:1px solid var(--line)}
+  @media(max-width:900px){.col:not(:last-child){border-right:none;border-bottom:1px solid var(--line)}}
+  .col h3{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+          display:flex;align-items:center;gap:8px}
+  .col h3 .cnt{font-weight:700;color:var(--accent);background:var(--present-bg);border-radius:20px;
+               padding:1px 8px;font-size:11px;letter-spacing:0}
+  .feat{border-left:3px solid var(--line);padding:6px 10px;margin-bottom:8px;border-radius:0 8px 8px 0;
+        background:rgba(127,127,127,.04)}
+  .feat.present{border-left-color:var(--present)}
+  .feat.absence{border-left-color:var(--absent)}
+  .feat.global{border-left-color:var(--global)}
+  .feat-name{font-weight:600;font-size:13.5px}
+  .feat.absence .feat-name{color:var(--absent)}
+  .feat-ev{display:block;font-size:12.5px;color:var(--evidence);font-style:italic;margin-top:2px}
+  .badge{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:20px;margin-top:4px;
+         vertical-align:middle}
+  .badge.time{background:var(--present-bg);color:var(--present)}
+  .badge.global{background:var(--global-bg);color:var(--global)}
+  .badge.rel-definitely{background:var(--present-bg);color:var(--present)}
+  .badge.rel-possibly{background:var(--absent-bg);color:var(--absent)}
+  .badge.rel-unrelated{background:var(--no-bg);color:var(--no)}
+  .empty{color:var(--muted);font-size:12.5px;font-style:italic}
+  .raw{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted);white-space:pre-wrap}
+  /* Model-3 schema (timing / details), expandable per feature */
+  .schema-toggle{margin-top:5px;font-size:11px;color:var(--accent);cursor:pointer;user-select:none;font-weight:600;display:inline-block}
+  .schema-toggle:hover{text-decoration:underline}
+  .schema-toggle .tri{display:inline-block;width:10px}
+  .schema-toggle .stiny{color:var(--muted);font-weight:500}
+  .schema-body{margin-top:6px;padding:7px 9px;background:rgba(127,127,127,.06);border:1px solid var(--line);border-radius:6px}
+  .sgroup{margin-bottom:7px}
+  .sgroup:last-child{margin-bottom:0}
+  .sgroup-h{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:3px;font-weight:700}
+  .svar{font-size:11.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .svar:last-child{border-bottom:none}
+  .svar-top{display:flex;justify-content:space-between;gap:10px}
+  .svid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--evidence);word-break:break-word}
+  .sval{text-align:right;font-weight:600;white-space:normal}
+  .smeta{margin-top:3px;margin-left:2px;padding-left:7px;border-left:2px solid var(--line);
+         font-size:10.5px;color:var(--muted);white-space:pre-wrap;line-height:1.4;word-break:break-word}
+  .smeta-k{font-weight:700;text-transform:uppercase;letter-spacing:.3px;font-size:9.5px;color:var(--accent);margin-right:4px}
+  .sval.good{color:var(--yes)}
+  .sval.bad{color:var(--no)}
+  .sval.warn{color:var(--absent)}
+  .hidden{display:none}
+  footer{text-align:center;color:var(--muted);font-size:11px;padding:24px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🩸 Transfusion Pipeline — Model Comparison Viewer</h1>
+  <label class="btn primary" for="file">Open comparison CSV…</label>
+  <input type="file" id="file" accept=".csv">
+  <span id="fname" class="stats"></span>
+  <div class="spacer"></div>
+  <input id="search" type="search" placeholder="Filter notes / features…" class="hidden">
+  <span id="stats" class="stats"></span>
+  <button id="toggleAll" class="btn hidden">⊕ Expand schema</button>
+  <button id="export" class="btn" disabled>⬇ Export to Excel</button>
+</header>
+
+<main>
+  <div id="drop" class="drop">
+    <h2>Open a model-comparison CSV</h2>
+    <p>Click <b>Open comparison CSV…</b> above, or drag a <code>.csv</code> here.<br>
+       Expects a <code>summary</code> column and one or more <code>features_*</code> columns
+       (one per model). Everything runs locally in your browser — nothing is uploaded.</p>
+  </div>
+  <div id="list"></div>
+</main>
+<footer>Local viewer · each model's features rendered from its JSON column, side by side · click <b>schema</b> on any feature (or <b>Expand schema</b>) to compare Model-3 timing/details · use "Export to Excel" to share.</footer>
+
+<script>
+"use strict";
+let RECORDS = [];      // [{id, summary, cells:{label:cellText}}]
+let MODELS = [];       // [{label}]
+let FILEBASE = "comparison";
+let SCHEMA_OPEN = false;   // expand-all state for the per-feature schema blocks
+
+/* ---------- robust CSV parser (handles quotes, commas & newlines in fields) ---------- */
+function parseCSV(text){
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // strip BOM
+  const rows=[]; let row=[]; let field=""; let i=0; let inQ=false;
+  while(i < text.length){
+    const c=text[i];
+    if(inQ){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field+='"'; i+=2; continue; }
+        inQ=false; i++; continue;
+      }
+      field+=c; i++; continue;
+    }
+    if(c === '"'){ inQ=true; i++; continue; }
+    if(c === ','){ row.push(field); field=""; i++; continue; }
+    if(c === '\r'){ i++; continue; }
+    if(c === '\n'){ row.push(field); rows.push(row); row=[]; field=""; i++; continue; }
+    field+=c; i++;
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function esc(s){ return String(s==null?"":s)
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+function tryParse(t){ try{ return {ok:true, data:JSON.parse(t)}; }catch(e){ return {ok:false, data:null}; } }
+
+/* Model 3 "transfusion adjacent" label -> badge colour class */
+function relClass(v){
+  const k=String(v||"").toLowerCase();
+  if(k.startsWith("definitely")) return "rel-definitely";
+  if(k.startsWith("possibly"))   return "rel-possibly";
+  return "rel-unrelated";
+}
+
+/* ---------- Model-3 schema (timing / details) ---------- */
+/* Colour a schema value: asserted (documented/yes) green, uncertain amber,
+   everything negative/absent (no / not_documented / not_applicable) grey. */
+function schemaValClass(v){
+  const k=String(v==null?"":v).toLowerCase();
+  if(k==="documented"||k==="yes") return "good";
+  if(k==="uncertain")             return "warn";
+  return "bad";
+}
+/* A schema object is {timing:[...], details:[...]} (any array-valued groups). */
+function schemaGroups(sc){
+  if(!sc || typeof sc!=="object") return [];
+  return Object.keys(sc).filter(k=>Array.isArray(sc[k]) && sc[k].length);
+}
+/* "12 timing · 1 details" for the toggle label. */
+function schemaSummary(sc){
+  return schemaGroups(sc).map(g=>`${sc[g].length} ${g}`).join(" · ");
+}
+function renderSchema(sc){
+  const groups=schemaGroups(sc);
+  if(!groups.length) return "";
+  const body = groups.map(g=>{
+    const rows = sc[g].map(v=>{
+      let val = String(v.value==null?"":v.value);
+      if(v.unit) val += " · " + v.unit;
+      const meta =
+        (v.notes ? `<div class="smeta"><span class="smeta-k">notes</span>${esc(v.notes)}</div>` : "") +
+        (v.dependencies ? `<div class="smeta"><span class="smeta-k">dependencies</span>${esc(v.dependencies)}</div>` : "");
+      return `<div class="svar">
+        <div class="svar-top">
+          <span class="svid">${esc(v.variable_id||"")}</span>
+          <span class="sval ${schemaValClass(v.value)}">${esc(val)}</span>
+        </div>${meta}
+      </div>`;
+    }).join("");
+    return `<div class="sgroup"><div class="sgroup-h">${esc(g)}</div>${rows}</div>`;
+  }).join("");
+  const sum = schemaSummary(sc);
+  return `<div class="schema-toggle"><span class="tri">▸</span> schema <span class="stiny">(${esc(sum)})</span></div>
+    <div class="schema-body hidden">${body}</div>`;
+}
+/* plain-text schema for Excel export */
+function schemaText(sc){
+  const groups=schemaGroups(sc);
+  if(!groups.length) return "";
+  const flat = s => String(s).replace(/\s+/g," ").trim();
+  return " — schema: " + groups.map(g=>{
+    const items = sc[g].map(v=>{
+      let s = `${v.variable_id}=${v.value}${v.unit?`(${v.unit})`:""}`;
+      if(v.notes)        s += ` {notes: ${flat(v.notes)}}`;
+      if(v.dependencies) s += ` {dependencies: ${flat(v.dependencies)}}`;
+      return s;
+    }).join("; ");
+    return `[${g}: ${items}]`;
+  }).join(" ");
+}
+
+/* Detect the summary/id columns and every per-model features_* column. */
+function detectCols(header){
+  const h = header.map(x => (x||"").toString().trim());
+  const lower = h.map(x => x.toLowerCase());
+  const find = (subs, def) => { for(const s of subs){ const k=lower.findIndex(x=>x.includes(s)); if(k>=0) return k; } return def; };
+  const id = lower.indexOf("id");
+  const summary = find(["summary","clinical text","clinical note","note","text"], -1);
+  // Prefer columns literally named features_<model>; fall back to any "feature" column.
+  let models = [];
+  h.forEach((name,i)=>{
+    if(lower[i].startsWith("features_")) models.push({idx:i, label:name.replace(/^features_/i,"")});
+  });
+  if(!models.length){
+    h.forEach((name,i)=>{
+      if(i!==summary && i!==id && lower[i].includes("feature"))
+        models.push({idx:i, label:name.replace(/^features[_ ]?/i,"")||name});
+    });
+  }
+  return {id, summary, models};
+}
+
+/* ---------- rendering ---------- */
+function featCount(cell){ return (tryParse(cell).data?.features||[]).length; }
+
+function renderFeatures(cell){
+  const {ok,data}=tryParse(cell);
+  if(!ok) return cell.trim()? `<div class="raw">${esc(cell)}</div>` : `<div class="empty">— no data —</div>`;
+  const feats = (data && data.features) || [];
+  if(!feats.length) return `<div class="empty">— none extracted —</div>`;
+  return feats.map(f=>{
+    if(f && typeof f==="object" && "feature" in f){
+      const name=String(f.feature||"");
+      const absence=name.toLowerCase().startsWith("evidence for absence of");
+      const rel=f["transfusion adjacent"];
+      return `<div class="feat ${absence?"absence":"present"}">
+        <span class="feat-name">${esc(name)}</span>
+        ${f.evidence?`<span class="feat-ev">“${esc(f.evidence)}”</span>`:""}
+        ${f.time?`<span class="badge time">🕑 ${esc(f.time)}</span>`:""}
+        ${rel?`<span class="badge ${relClass(rel)}">🩸 ${esc(rel)}</span>`:""}
+        ${renderSchema(f.schema)}
+      </div>`;
+    }
+    if(f && typeof f==="object" && ("Additional Features" in f || "global time" in f || "global_time" in f)){
+      const t = f["Additional Features"]!=null ? f["Additional Features"]
+              : (f["global time"]!=null ? f["global time"] : f["global_time"]);
+      return `<div class="feat global"><span class="badge global">Additional Features</span> <span class="feat-ev">${esc(t)}</span></div>`;
+    }
+    return `<div class="feat"><span class="raw">${esc(JSON.stringify(f))}</span></div>`;
+  }).join("");
+}
+
+/* plain-text version for Excel export */
+function featuresText(cell){
+  const {ok,data}=tryParse(cell); if(!ok) return cell.trim();
+  const feats=(data&&data.features)||[]; if(!feats.length) return "(none)";
+  return feats.map(f=>{
+    if(f&&typeof f==="object"&&"feature" in f)
+      return `• ${f.feature}${f.evidence?`  — evidence: "${f.evidence}"`:""}${f.time?`  — time: ${f.time}`:""}${f["transfusion adjacent"]?`  — transfusion adjacent: ${f["transfusion adjacent"]}`:""}${schemaText(f.schema)}`;
+    if(f&&("Additional Features" in f||"global time" in f||"global_time" in f)){
+      const t = f["Additional Features"]!=null ? f["Additional Features"]
+              : (f["global time"]!=null ? f["global time"] : f["global_time"]);
+      return `• [Additional Features] ${t}`;
+    }
+    return `• ${JSON.stringify(f)}`;
+  }).join("\n");
+}
+
+/* ---------- load / display ---------- */
+function loadText(text, filename){
+  const rows=parseCSV(text).filter(r=>r.length && r.some(c=>String(c).trim()!==""));
+  if(!rows.length){ alert("This file appears to be empty."); return; }
+  const idx=detectCols(rows[0]);
+  if(!idx.models.length){
+    alert("No model feature columns found. Expected one or more columns named features_<model>.");
+    return;
+  }
+  MODELS = idx.models.map(m=>({label:m.label}));
+  RECORDS = rows.slice(1).map(r=>({
+    id: idx.id>=0 ? (r[idx.id]||"") : "",
+    summary: idx.summary>=0 ? (r[idx.summary]||"") : "",
+    cells: idx.models.map(m => r[m.idx]||"")
+  }));
+  FILEBASE = (filename||"comparison").replace(/\.[^.]+$/,"");
+  document.getElementById("fname").textContent = filename||"";
+  render();
+}
+
+function render(){
+  const q=(document.getElementById("search").value||"").trim().toLowerCase();
+  const list=document.getElementById("list");
+  const n = MODELS.length;
+  const totals = MODELS.map(()=>0);
+  let shown=0;
+  const html = RECORDS.map((rec,i)=>{
+    const counts = rec.cells.map(featCount);
+    counts.forEach((c,k)=>totals[k]+=c);
+    const hay=(rec.summary+" "+rec.cells.join(" ")).toLowerCase();
+    if(q && !hay.includes(q)) return "";
+    shown++;
+    const headCounts = MODELS.map((m,k)=>`${esc(m.label)} ${counts[k]}`).join(" · ");
+    const colsHtml = MODELS.map((m,k)=>`
+      <div class="col">
+        <h3>${esc(m.label)} <span class="cnt">${counts[k]}</span></h3>
+        ${renderFeatures(rec.cells[k])}
+      </div>`).join("");
+    return `<div class="card">
+      <div class="card-head">
+        <span class="rownum">Row ${i+2}</span>
+        ${rec.id?`<span class="idtag">${esc(rec.id)}</span>`:""}
+        <span class="mini">${headCounts}</span>
+      </div>
+      <div class="note">${esc(rec.summary)}</div>
+      <div class="cols" style="--n:${n}">${colsHtml}</div>
+    </div>`;
+  }).join("");
+  list.innerHTML = html || `<div class="drop"><h2>No matches</h2><p>Nothing matches “${esc(q)}”.</p></div>`;
+  document.getElementById("drop").classList.add("hidden");
+  document.getElementById("search").classList.remove("hidden");
+  document.getElementById("export").disabled = RECORDS.length===0;
+  document.getElementById("toggleAll").classList.toggle("hidden", RECORDS.length===0);
+  const perModel = MODELS.map((m,k)=>`<b>${esc(m.label)}</b> ${totals[k]}`).join(" · ");
+  document.getElementById("stats").innerHTML =
+    `<b>${RECORDS.length}</b> notes${q?` (<b>${shown}</b> shown)`:""} · features — ${perModel}`;
+  applySchemaState();   // re-apply expand/collapse-all after the list is rebuilt
+}
+
+/* Apply the current expand-all state to every schema block on screen. */
+function applySchemaState(){
+  document.querySelectorAll(".schema-body").forEach(b=>b.classList.toggle("hidden", !SCHEMA_OPEN));
+  document.querySelectorAll(".schema-toggle .tri").forEach(t=>t.textContent = SCHEMA_OPEN?"▾":"▸");
+  document.getElementById("toggleAll").textContent = SCHEMA_OPEN?"⊖ Collapse schema":"⊕ Expand schema";
+}
+
+/* ---------- Excel export (HTML-table .xls; opens in Excel/Sheets) ---------- */
+function xcell(s){ return esc(s).replace(/\n/g,"<br>"); }
+function exportExcel(){
+  const modelHeaders = MODELS.map(m=>`<th>${esc(m.label)}</th>`).join("");
+  let h=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <head><meta charset="utf-8"><style>
+   table{border-collapse:collapse} td,th{border:1px solid #b8c0cc;padding:6px 8px;vertical-align:top;font-family:Calibri,Arial,sans-serif;font-size:11pt}
+   th{background:#2c5282;color:#fff;text-align:left}
+   td.note{width:420px} td.col{width:320px}
+  </style></head><body><table>
+  <tr><th>Row</th><th>id</th><th>Summary</th>${modelHeaders}</tr>`;
+  RECORDS.forEach((r,i)=>{
+    const cols = r.cells.map(c=>`<td class="col">${xcell(featuresText(c))}</td>`).join("");
+    h+=`<tr><td>${i+2}</td><td>${xcell(r.id)}</td><td class="note">${xcell(r.summary)}</td>${cols}</tr>`;
+  });
+  h+=`</table></body></html>`;
+  const blob=new Blob(["﻿"+h],{type:"application/vnd.ms-excel"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=FILEBASE+"_readable.xls";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ---------- wiring ---------- */
+document.getElementById("file").addEventListener("change", e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("export").addEventListener("click", exportExcel);
+/* Per-feature schema toggle (delegated, survives re-render). */
+document.getElementById("list").addEventListener("click", e=>{
+  const t = e.target.closest(".schema-toggle"); if(!t) return;
+  const body = t.nextElementSibling;
+  const nowOpen = body.classList.toggle("hidden") === false;
+  const tri = t.querySelector(".tri"); if(tri) tri.textContent = nowOpen?"▾":"▸";
+});
+/* Expand / collapse every schema block at once. */
+document.getElementById("toggleAll").addEventListener("click", ()=>{
+  SCHEMA_OPEN = !SCHEMA_OPEN;
+  applySchemaState();
+});
+const drop=document.getElementById("drop");
+["dragover"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>document.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+document.addEventListener("drop", e=>{
+  const f=e.dataTransfer.files[0]; if(!f) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, f.name); r.readAsText(f);
+});
+</script>
+</body>
+</html>
